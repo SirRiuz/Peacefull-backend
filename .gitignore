@@ -1,3 +1,7 @@
 
 core/__pycache__
 db.sqlite3
+cdn
+client
+repo/__pycache__
+repo/migrations/*
