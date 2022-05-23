@@ -4,6 +4,10 @@ from this import d
 from django.db import models
 
 
+# Settins
+from core.settings import CDN_URL
+
+
 
 
 # program - semestre - asignatura - file
@@ -79,19 +83,31 @@ class Item(models.Model):
     
     signature = models.ForeignKey(to=Signature,on_delete=models.CASCADE)
     
-    title = models.CharField(null=False,max_length=200,help_text='Title the item')
+    title = models.CharField(
+        null=False,
+        max_length=200,
+        help_text='Title the item'
+    )
     
     # by = ''
     # program = ''
     
-    fileOrigin = models.CharField(null=False,max_length=1000,help_text='The adress of item')
+    fileOrigin = models.CharField(
+        null=False,
+        max_length=1000,
+        help_text='The adress of item'
+    )
     
     date = models.DateField(auto_now_add=True)
     
     
     @property
     def item (self) -> (dict):
-        return ({ })
+        print(self.fileOrigin)
+        return ({
+            'self':f'{CDN_URL}media/{self.fileOrigin}',
+            'name':self.fileOrigin
+        })
     
     
     

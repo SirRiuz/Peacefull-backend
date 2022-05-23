@@ -1,6 +1,7 @@
 
 
 # rest_framework
+from pyexpat import model
 from itsdangerous import Serializer
 from rest_framework import serializers
 
@@ -21,15 +22,17 @@ from core.settings import CDN_URL
 
 
 class SearchSerializer(serializers.ModelSerializer):
+    
     class Meta(object):
         model = Item
         fields = '__all__'
 
 
-
-
-class ItemSerializer(serializers.ModelSerializer):
+class ItemSerializer(serializers.Serializer):
     
+    file = serializers.FileField(required=True)
+    title = serializers.CharField(required=True)
+    signatureId = serializers.IntegerField(required=True)
     
     def __saveToCdn(self,file) -> (dict):
         URL = f'{CDN_URL}api/v1/push-file/'
@@ -45,58 +48,34 @@ class ItemSerializer(serializers.ModelSerializer):
         except Exception as e:
             print('[ERROR] > The cnd is not connected')
             return None
-        
-    
+
+
     def __deleteToCnd(self,fileName) -> (None):
         print(fileName)
         data = { 'file_name':fileName }
         URL = f'{CDN_URL}api/v1/delete-file/'
-        response = requests.post(URL,json=data)
-    
-    
-    
-    def get(self,**kwargs) -> (dict):
-        id = kwargs.get('id')
-        model = kwargs.get('model')
-        
-        if id and model:
-            item = model.objects.filter(id=id)
-            item = item[0] if item else None
-            
-            if item:
-                return({
-                    'status':'ok',
-                    'item':{
-                        'program':item.signature.semester.program.name,
-                        'signature':item.signature.name,
-                        'by':'',
-                        'title':item.title,
-                        'description':'',
-                        'link':{
-                            'name':item.fileOrigin,
-                            'self':f'{CDN_URL}media/{item.fileOrigin}/'
-                        },
-                        'date':item.date
-                    }
-                })
+        requests.post(URL,json=data)
+
 
     def create(self,**kwargs) -> (dict):
-        signatureId = kwargs.get('signatureId',0)
-        title = kwargs.get('title')
-        file = kwargs.get('file')
+        signatureId = kwargs['signatureId']
+        title = kwargs['title']
+        file = kwargs['_file']
         
         signature = Signature.objects.filter(id=signatureId)
         signature = signature[0] if signature else None
         
-        if signature and title and file:
+        if signature:
             cndFile = self.__saveToCdn(file=file)
-            
             if not cndFile:
                 return ({
                     'status':'error',
-                    'messege':'Error to send file',
-                    'type-error':'cnd-conection-error'
+                    'error':{
+                        'messege':'Error to send file',
+                        'type-error':'cnd-conection-error'
+                    }
                 })
+            
             
             if cndFile:
                 item = Item.objects.create(
@@ -104,7 +83,6 @@ class ItemSerializer(serializers.ModelSerializer):
                     title=title,
                     fileOrigin=cndFile
                 )
-                
                 return({
                     'status':'ok',
                     'item':{
@@ -115,78 +93,28 @@ class ItemSerializer(serializers.ModelSerializer):
                     }
                 })
         
+        else:
+            return ({
+                'status':'error',
+                'error':{
+                    'messege':'The signature not exists',
+                    'type-error':'signature-error'
+                }
+            })
 
 
     def delete(self,**kwargs) -> (dict):
         id = kwargs.get('id')
-        model = kwargs.get('model')
         
-        if id and model:
-            item = model.objects.filter(id=id)
+        if id:
+            item = Item.objects.filter(id=id)
             item = item[0] if item else None
             
             if item:
-                result = self.__deleteToCnd(fileName=item.fileOrigin)
-                print(result)
+                self.__deleteToCnd(fileName=item.fileOrigin)
                 item.delete()
-                return({ 'status':'ok' })
-            
-    
-    class Meta(object):
-        model = Item
-        fields = [ 'id','title','item' ]
-
-
-
-class SignatureSerializer(serializers.ModelSerializer):
-    class Meta(object):
-        fields = [ 'id','name' ]
-        model = Signature
-
-
-    def get(self,id,model) -> (dict):
-        signature = model.objects.filter(id=id)
+                return
         
-        if signature:
-            signature = signature[0]
-            return({
-                'status':'ok',
-                'signature':{
-                    'name':signature.name,
-                    'semester':signature.semester.semester,
-                    'program':signature.semester.program.__str__(),
-                    'articles_size':''
-                }
-            })
-        
-
-    def delete(self,id,model) -> (dict):
-        signature = model.objects.filter(id=id)
-        
-        if signature:
-            signature = signature[0]
-            signature.delete()
-            
-            return({ 'status':'ok', 'text':'The signature is deleted' })
-            
-                    
-    
-    def create(self,data,programId,semester) -> (dict):
-        
-        try:
-            program = Program.objects.get(id=programId)
-            semester = Semester.objects.get(program=program,semester=semester)
-            Signature.objects.create(name=data['name'],semester=semester)
-            
-            return({
-                'status':'ok',
-                'text':'Signature created'
-            })
-            
-        except Exception as e:
-            return None
-
-
 
 class ProgramSerialzer(serializers.ModelSerializer):
     class Meta(object):
@@ -194,53 +122,44 @@ class ProgramSerialzer(serializers.ModelSerializer):
         fields = [ 'id','name','countSemesters' ]
         
     
-    def __createSemesters(self,model,size) -> (None):
-        for x in range(1,size + 1):
-            Semester.objects.create(program=model,semester=str(x))
-        
+    def getItem(self,**kwargs) -> (object):
+        try:
+            item = Item.objects.get(id=kwargs['itemId'])
+            return ({
+                'author':{},
+                'item':{
+                    'title':item.title,
+                    'self':item.fileOrigin
+                }
+            })
+        except:
+            return None
+
     
-    def get(self,id,model) -> (dict):
+    def getAllItems(sefl,**kwargs) -> (list):
+        signature = Signature.objects.filter(id=kwargs['signatureId'])
+        
+        if signature:
+            itemList = Item.objects.filter(signature=signature[0]).values()
+            return itemList
+
+    
+    def getAllPrograms(self) -> (list):
+        return Program.objects.all().values()
+    
+    
+    def getAllSignatures(self,**kwargs) -> (object):
         try:
-            program = model.objects.get(id=id)
-            return ({
-                'program':{
-                    'id':program.id,
-                    'name':program.name,
-                    'semesters':program.countSemesters,
-                    'description':'',
-                }
-            })
-        except Exception:
+            semester = Semester.objects.get(id=kwargs['semester'])
+            signatures = Signature.objects.filter(semester=semester).values()
+            return signatures
+        except:
             return None
-        
-        
-        
-    def delete(self,id,model) -> (bool):
-        program = model.objects.filter(id=id)
-        
-        if program:
-            program = program[0].delete()
-            return True
-        
-        return False
- 
- 
-    def create(self,data,model) -> (object):
+    
+    
+    def getAllSemesters(self,**kwargs) -> (list):
         try:
-            id = random.randint(0,99999999)
-            semesters = data.get('semesters',10)
-            model = model.objects.create(name=data['name'], id=id)
-            self.__createSemesters(model=model,size=semesters)
-            return ({
-                'status':'ok',
-                'program':{
-                    'id':model.id,
-                    'name':model.name
-                }
-            })
-        except Exception as e:
+            program = Program.objects.get(id=kwargs['programId'])
+            return Semester.objects.filter(program=program).values()
+        except:
             return None
-        
-        
-        
-        
